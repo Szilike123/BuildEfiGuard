@@ -57,7 +57,6 @@ jobs:
           } else {
             git clone --recursive https://github.com/ionescu007/VisualUefi.git $dst
           }
-          # Normalize for GitHub env
           $norm = $dst -replace '\\','/'
           "VISUALUEFI_DIR=$norm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -108,24 +107,11 @@ jobs:
           Install-Choco 'iasl'
           Install-Choco 'llvm'
 
-      - name: Resolve & Export NASM_PREFIX / IASL_PREFIX (+PATH)
-        shell: powershell
-        run: |
-          # same logic as before (omitted for brevity)
-
-      - name: Sanity Check NASM/IASL
-        shell: cmd
-        run: |
-          echo NASM_PREFIX=%NASM_PREFIX%
-          echo IASL_PREFIX=%IASL_PREFIX%
-          where nasm
-          where iasl
-
-      - name: Run EDK II edksetup (no rebuild)
+      - name: Run EDK II edksetup
         shell: cmd
         run: |
           cd /d "%EDK2_DIR%"
-          call edksetup.bat
+          call edksetup.bat Rebuild
 
       - name: Run repository bootstrap (main.py)
         shell: powershell
@@ -145,7 +131,14 @@ jobs:
           Copy-Item -LiteralPath $src -Destination $dst -Force
           Write-Host "Replaced: $dst"
 
-      # --- Build: VisualUefi -> EfiGuard ---
+      # --- Build: EfiGuardDxe via EDK2, EfiDSEFix via MSBuild ---
+      - name: Build EfiGuardDxe (EDK II build)
+        shell: cmd
+        run: |
+          cd /d "%EDK2_DIR%"
+          call edksetup.bat
+          build -a X64 -b RELEASE -p EfiGuardPkg\EfiGuardPkg.dsc
+
       - name: Find MSBuild (no external action)
         shell: powershell
         run: |
@@ -168,33 +161,25 @@ jobs:
           "MSBUILD_EXE=$msb" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "MSBUILD_EXE -> $msb"
 
-      - name: Build VisualUefi (MSBuild, Release x64)
+      - name: Build EfiDSEFix (MSBuild, Release x64)
         shell: cmd
         run: |
-          echo VISUALUEFI_DIR=%VISUALUEFI_DIR%
-          "%MSBUILD_EXE%" "%VISUALUEFI_DIR%/EDK-II/EDK-II.sln" /m /p:Configuration=Release /p:Platform=x64
-
-      - name: Build EfiGuardDxe + EfiDSEFix (MSBuild, Release x64, with custom param)
-        shell: cmd
-        run: |
-          "%MSBUILD_EXE%" "%PKG_DIR%\EfiGuardDxe\EfiGuardDxe.vcxproj" /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=%PKG_DIR%/" "/p:-D EAC_COMPAT_MODE=1" "/p:-D DO_NOT_DISABLE_PATCHGUARD=1"
           "%MSBUILD_EXE%" "%PKG_DIR%\Application\EfiDSEFix\src\EfiDSEFix.vcxproj" /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=%PKG_DIR%/"
 
+      # --- Stage + Upload ---
       - name: Stage Artifacts (flat root)
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $pkg    = $env:PKG_DIR
-          $efiDxe = Join-Path $pkg 'x64\Release\EfiGuardDxe.efi'
-          $dseExe = Join-Path $pkg 'Application\EfiDSEFix\bin\EfiDSEFix.exe'
-
-          if (-not (Test-Path $efiDxe)) { throw "Missing: $efiDxe" }
+          # Find EFI binary dynamically
+          $efiDxe = Get-ChildItem -Path "$env:EDK2_DIR\Build" -Recurse -Filter "EfiGuardDxe.efi" | Select-Object -First 1
+          if (-not $efiDxe) { throw "EfiGuardDxe.efi not found under Build/ tree." }
+          $dseExe = Join-Path $env:PKG_DIR 'Application\EfiDSEFix\bin\EfiDSEFix.exe'
           if (-not (Test-Path $dseExe)) { throw "Missing: $dseExe" }
 
           $root = 'artifacts'
           New-Item -ItemType Directory -Force -Path $root | Out-Null
-
-          Copy-Item $efiDxe (Join-Path $root 'EfiGuardDxe.efi') -Force
+          Copy-Item $efiDxe.FullName (Join-Path $root 'EfiGuardDxe.efi') -Force
           Copy-Item $dseExe (Join-Path $root 'EfiDSEFix.exe') -Force
 
       - name: Upload Artifacts (flat)
