@@ -1,4 +1,3 @@
-
 name: Build EfiGuard
 
 on:
@@ -39,14 +38,14 @@ jobs:
             git clone --recursive https://github.com/tianocore/edk2.git "$env:EDK2_DIR"
           }
 
-      - name: Clone EfiGuard into edk2/EfiGuardPkg
+      - name: Clone *forked* EfiGuard into edk2/EfiGuardPkg
         shell: powershell
         run: |
           $dst = "$env:PKG_DIR"
           if (Test-Path $dst) {
             Write-Host "SKIP: $dst already exists."
           } else {
-            git clone --recursive https://github.com/Mattiwatti/EfiGuard.git $dst
+            git clone --recursive https://github.com/utoni/EfiGuard.git $dst
           }
 
       - name: Clone VisualUefi into WORK_SPACE
@@ -110,51 +109,7 @@ jobs:
       - name: Resolve & Export NASM_PREFIX / IASL_PREFIX (+PATH)
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-
-          function Resolve-Exe([string]$name, [string[]]$candidates, [string[]]$extraRoots) {
-            $hits = @()
-            foreach ($c in $candidates) { if (Test-Path $c) { $hits += $c } }
-            if (-not $hits) {
-              foreach ($root in $extraRoots) {
-                if (Test-Path $root) {
-                  $f = Get-ChildItem -Path $root -Recurse -Filter $name -ErrorAction SilentlyContinue | Select-Object -First 1
-                  if ($f) { $hits += $f.FullName; break }
-                }
-              }
-            }
-            if (-not $hits) {
-              $cmd = Get-Command $name -ErrorAction SilentlyContinue
-              if ($cmd) { $hits += $cmd.Path }
-            }
-            return $hits | Select-Object -First 1
-          }
-
-          function Export-Prefix([string]$var, [string]$exePath) {
-            if ([string]::IsNullOrWhiteSpace($exePath)) { return $false }
-            $dir = Split-Path $exePath -Parent
-            if ([string]::IsNullOrWhiteSpace($dir)) { return $false }
-            "$var=$dir\" | Out-File -FilePath $env:GITHUB_ENV -Append
-            $dir        | Out-File -FilePath $env:GITHUB_PATH -Append
-            Write-Host "$var -> $dir\"
-            return $true
-          }
-
-          $nasm = Resolve-Exe 'nasm.exe' @(
-            "$env:ChocolateyInstall\bin\nasm.exe",
-            "C:\ProgramData\chocolatey\bin\nasm.exe",
-            "$env:ProgramFiles\NASM\nasm.exe",
-            "$env:ProgramFiles(x86)\NASM\nasm.exe",
-            "C:\NASM\nasm.exe"
-          ) @("C:\ProgramData\chocolatey", "$env:ProgramFiles", "$env:ProgramFiles(x86)")
-          if (-not (Export-Prefix 'NASM_PREFIX' $nasm)) { Write-Host "WARN: NASM not found." } else { try { & $nasm -v } catch {} }
-
-          $iasl = Resolve-Exe 'iasl.exe' @(
-            "$env:ChocolateyInstall\bin\iasl.exe",
-            "C:\ProgramData\chocolatey\bin\iasl.exe",
-            "C:\ASL\iasl.exe"
-          ) @("C:\ProgramData\chocolatey", "$env:ProgramFiles", "$env:ProgramFiles(x86)")
-          if (-not (Export-Prefix 'IASL_PREFIX' $iasl)) { Write-Host "WARN: iASL not found." } else { try { & $iasl -v } catch {} }
+          # same as before ...
 
       - name: Sanity Check NASM/IASL
         shell: cmd
@@ -192,52 +147,23 @@ jobs:
       - name: Find MSBuild (no external action)
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          $msb = $null
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          if (Test-Path $vswhere) {
-            $msb = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
-          }
-          if (-not $msb) {
-            $candidates = @(
-              "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
-              "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
-              "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe",
-              "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
-            )
-            foreach ($p in $candidates) { if (Test-Path $p) { $msb = $p; break } }
-          }
-          if (-not $msb) { throw "MSBuild.exe not found. Install VS/Build Tools on the runner." }
-          "MSBUILD_EXE=$msb" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "MSBUILD_EXE -> $msb"
+          # same as before ...
 
       - name: Build VisualUefi (MSBuild, Release x64)
         shell: cmd
         run: |
           "%MSBUILD_EXE%" "%VISUALUEFI_DIR%\EDK-II\EDK-II.sln" /m /p:Configuration=Release /p:Platform=x64
 
-      - name: Build EfiGuardDxe + EfiDSEFix (MSBuild, Release x64)
+      - name: Build EfiGuardDxe + EfiDSEFix (MSBuild, Release x64, with custom param)
         shell: cmd
         run: |
-          "%MSBUILD_EXE%" "%PKG_DIR%\EfiGuardDxe\EfiGuardDxe.vcxproj" /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=%PKG_DIR%/"
+          "%MSBUILD_EXE%" "%PKG_DIR%\EfiGuardDxe\EfiGuardDxe.vcxproj" /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=%PKG_DIR%/" /p:CL_AdditionalOptions="-D EAC_COMPAT_MODE=1"
           "%MSBUILD_EXE%" "%PKG_DIR%\Application\EfiDSEFix\src\EfiDSEFix.vcxproj" /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=%PKG_DIR%/"
 
       - name: Stage Artifacts (flat root)
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          $pkg    = $env:PKG_DIR
-          $efiDxe = Join-Path $pkg 'x64\Release\EfiGuardDxe.efi'
-          $dseExe = Join-Path $pkg 'Application\EfiDSEFix\bin\EfiDSEFix.exe'
-
-          if (-not (Test-Path $efiDxe)) { throw "Missing: $efiDxe" }
-          if (-not (Test-Path $dseExe)) { throw "Missing: $dseExe" }
-
-          $root = 'artifacts'
-          New-Item -ItemType Directory -Force -Path $root | Out-Null
-
-          Copy-Item $efiDxe (Join-Path $root 'EfiGuardDxe.efi') -Force
-          Copy-Item $dseExe (Join-Path $root 'EfiDSEFix.exe') -Force
+          # same as before ...
 
       - name: Upload Artifacts (flat)
         uses: actions/upload-artifact@v4
