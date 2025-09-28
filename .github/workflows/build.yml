@@ -177,7 +177,7 @@ jobs:
       - name: Build EfiGuardDxe + EfiDSEFix (MSBuild, Release x64, with custom param)
         shell: cmd
         run: |
-          "%MSBUILD_EXE%" "%PKG_DIR%\EfiGuardDxe\EfiGuardDxe.vcxproj" /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=%PKG_DIR%/" /p:CL_AdditionalOptions="-D EAC_COMPAT_MODE=1"
+          "%MSBUILD_EXE%" "%PKG_DIR%\EfiGuardDxe\EfiGuardDxe.vcxproj" /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=%PKG_DIR%/" "/p:-D EAC_COMPAT_MODE=1" "/p:-D DO_NOT_DISABLE_PATCHGUARD=1"
           "%MSBUILD_EXE%" "%PKG_DIR%\Application\EfiDSEFix\src\EfiDSEFix.vcxproj" /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=%PKG_DIR%/"
 
       - name: Stage Artifacts (flat root)
