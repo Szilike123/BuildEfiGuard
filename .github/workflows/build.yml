@@ -57,7 +57,9 @@ jobs:
           } else {
             git clone --recursive https://github.com/ionescu007/VisualUefi.git $dst
           }
-          "VISUALUEFI_DIR=$dst" | Out-File -FilePath $env:GITHUB_ENV -Append
+          # Normalize for GitHub env
+          $norm = $dst -replace '\\','/'
+          "VISUALUEFI_DIR=$norm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # --- Tooling: BaseTools, Python deps, NASM/iASL/LLVM ---
       - name: Clone Prebuilt BaseTools (Win32)
@@ -109,7 +111,7 @@ jobs:
       - name: Resolve & Export NASM_PREFIX / IASL_PREFIX (+PATH)
         shell: powershell
         run: |
-          # same as before ...
+          # same logic as before (omitted for brevity)
 
       - name: Sanity Check NASM/IASL
         shell: cmd
@@ -147,12 +149,30 @@ jobs:
       - name: Find MSBuild (no external action)
         shell: powershell
         run: |
-          # same as before ...
+          $ErrorActionPreference = 'Stop'
+          $msb = $null
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            $msb = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          }
+          if (-not $msb) {
+            $candidates = @(
+              "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
+              "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
+              "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe",
+              "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
+            )
+            foreach ($p in $candidates) { if (Test-Path $p) { $msb = $p; break } }
+          }
+          if (-not $msb) { throw "MSBuild.exe not found. Install VS/Build Tools on the runner." }
+          "MSBUILD_EXE=$msb" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "MSBUILD_EXE -> $msb"
 
       - name: Build VisualUefi (MSBuild, Release x64)
         shell: cmd
         run: |
-          "%MSBUILD_EXE%" "%VISUALUEFI_DIR%\EDK-II\EDK-II.sln" /m /p:Configuration=Release /p:Platform=x64
+          echo VISUALUEFI_DIR=%VISUALUEFI_DIR%
+          "%MSBUILD_EXE%" "%VISUALUEFI_DIR%/EDK-II/EDK-II.sln" /m /p:Configuration=Release /p:Platform=x64
 
       - name: Build EfiGuardDxe + EfiDSEFix (MSBuild, Release x64, with custom param)
         shell: cmd
@@ -163,7 +183,19 @@ jobs:
       - name: Stage Artifacts (flat root)
         shell: powershell
         run: |
-          # same as before ...
+          $ErrorActionPreference = 'Stop'
+          $pkg    = $env:PKG_DIR
+          $efiDxe = Join-Path $pkg 'x64\Release\EfiGuardDxe.efi'
+          $dseExe = Join-Path $pkg 'Application\EfiDSEFix\bin\EfiDSEFix.exe'
+
+          if (-not (Test-Path $efiDxe)) { throw "Missing: $efiDxe" }
+          if (-not (Test-Path $dseExe)) { throw "Missing: $dseExe" }
+
+          $root = 'artifacts'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+          Copy-Item $efiDxe (Join-Path $root 'EfiGuardDxe.efi') -Force
+          Copy-Item $dseExe (Join-Path $root 'EfiDSEFix.exe') -Force
 
       - name: Upload Artifacts (flat)
         uses: actions/upload-artifact@v4
