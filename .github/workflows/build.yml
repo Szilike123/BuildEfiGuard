@@ -45,7 +45,7 @@ jobs:
           if (Test-Path $dst) {
             Write-Host "SKIP: $dst already exists."
           } else {
-            git clone --recursive https://github.com/Szilike123/EfiGuard.git $dst
+            git clone --recursive https://github.com/utoni/EfiGuard.git $dst
           }
 
       - name: Clone VisualUefi into WORK_SPACE
@@ -134,17 +134,6 @@ jobs:
           if (-not (Test-Path ".\main.py")) { throw "main.py not found at repo root." }
           py -3 .\main.py .\EfiGuard.h .\EfiGuard.new.h
 
-      - name: Replace EfiGuard.h in PKG
-        shell: powershell
-        run: |
-          $src = Join-Path $env:WORK_SPACE 'EfiGuard.new.h'
-          $dst = Join-Path $env:PKG_DIR 'Include\Protocol\EfiGuard.h'
-          if (-not (Test-Path $src)) { throw "Source header not found: $src" }
-          $dstDir = Split-Path $dst -Parent
-          New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
-          Copy-Item -LiteralPath $src -Destination $dst -Force
-          Write-Host "Replaced: $dst"
-
       # --- Build: VisualUefi -> EfiGuard ---
       - name: Find MSBuild (no external action)
         shell: powershell
@@ -177,7 +166,7 @@ jobs:
       - name: Build EfiGuardDxe + EfiDSEFix (MSBuild, Release x64, with custom param)
         shell: cmd
         run: |
-          "%MSBUILD_EXE%" "%PKG_DIR%\EfiGuardDxe\EfiGuardDxe.vcxproj" /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=%PKG_DIR%/" /p:CL_AdditionalOptions="-D EAC_COMPAT_MODE=1"
+          "%MSBUILD_EXE%" "%PKG_DIR%\EfiGuardDxe\EfiGuardDxe.vcxproj" /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=%PKG_DIR%/" /p:CL_AdditionalOptions="-D EAC_COMPAT_MODE=1 -D DO_NOT_DISABLE_PATCHGUARD=1"
           "%MSBUILD_EXE%" "%PKG_DIR%\Application\EfiDSEFix\src\EfiDSEFix.vcxproj" /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=%PKG_DIR%/"
 
       - name: Stage Artifacts (flat root)
