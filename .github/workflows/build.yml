@@ -45,7 +45,7 @@ jobs:
           if (Test-Path $dst) {
             Write-Host "SKIP: $dst already exists."
           } else {
-            git clone --recursive https://github.com:Szilike123/UwwwUUtessest.git $dst
+            git clone --recursive https://github.com/Szilike123/UwwwUUtessest.git $dst
           }
 
       - name: Clone VisualUefi into WORK_SPACE
